@@ -140,8 +140,12 @@ static int fuse_mount_opt_proc(void *data, const char *arg, int key,
 		mount_version();
 		mo->ishelp = 1;
 		break;
+
+	default:
+		fprintf(stderr, "fuse: unknown option `%s'\n", arg);
 	}
-	return 1;
+
+	return -1;
 }
 
 void fuse_unmount_compat22(const char *mountpoint)

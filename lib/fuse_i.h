@@ -14,6 +14,7 @@ struct fuse_ll;
 
 struct fuse_session {
 	struct fuse_ll *f;
+	char *mountpoint;
 
 	volatile int exited;
 
@@ -116,14 +117,11 @@ struct fuse_module {
 int fuse_chan_clearfd(struct fuse_chan *ch);
 void fuse_chan_close(struct fuse_chan *ch);
 
-/**
- * Create a new session
- *
- * @return new session object, or NULL on failure
- */
-struct fuse_session *fuse_session_new(void);
+/* ----------------------------------------------------------- *
+ * Channel interface					       *
+ * ----------------------------------------------------------- */
 
-/**
+ /**
  * Create a new channel
  *
  * @param op channel operations
@@ -140,6 +138,49 @@ struct fuse_chan *fuse_chan_new(int fd);
  */
 struct fuse_session *fuse_chan_session(struct fuse_chan *ch);
 
+/**
+ * Remove the channel from a session
+ *
+ * If the channel is not assigned to a session, then this is a no-op
+ *
+ * @param ch the channel to remove
+ */
+void fuse_session_remove_chan(struct fuse_chan *ch);
+
+/**
+ * Assign a channel to a session
+ *
+ * If a session is destroyed, the assigned channel is also destroyed
+ *
+ * @param se the session
+ * @param ch the channel
+ */
+void fuse_session_add_chan(struct fuse_session *se, struct fuse_chan *ch);
+
+/**
+ * Return channel assigned to the session
+ *
+ * @param se the session
+ * @return the channel
+ */
+struct fuse_chan *fuse_session_chan(struct fuse_session *se);
+
+/**
+ * Obtain counted reference to the channel
+ *
+ * @param ch the channel
+ * @return the channel
+ */
+struct fuse_chan *fuse_chan_get(struct fuse_chan *ch);
+
+/**
+ * Drop counted reference to a channel
+ *
+ * @param ch the channel
+ */
+void fuse_chan_put(struct fuse_chan *ch);
+
+
 void fuse_kern_unmount(const char *mountpoint, int fd);
 int fuse_kern_mount(const char *mountpoint, struct fuse_args *args);
 
@@ -150,3 +191,8 @@ void fuse_free_req(fuse_req_t req);
 void cuse_lowlevel_init(fuse_req_t req, fuse_ino_t nodeide, const void *inarg);
 
 int fuse_start_thread(pthread_t *thread_id, void *(*func)(void *), void *arg);
+
+int fuse_session_receive_buf_int(struct fuse_session *se, struct fuse_buf *buf,
+				 struct fuse_chan *ch);
+void fuse_session_process_buf_int(struct fuse_session *se,
+				  const struct fuse_buf *buf, struct fuse_chan *ch);

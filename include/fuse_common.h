@@ -206,28 +206,7 @@ struct fuse_conn_info {
 };
 
 struct fuse_session;
-struct fuse_chan;
 struct fuse_pollhandle;
-
-/**
- * Create a FUSE mountpoint
- *
- * Returns a control file descriptor suitable for passing to
- * fuse_new()
- *
- * @param mountpoint the mount point path
- * @param args argument vector
- * @return the communication channel on success, NULL on failure
- */
-struct fuse_chan *fuse_mount(const char *mountpoint, struct fuse_args *args);
-
-/**
- * Umount a FUSE mountpoint
- *
- * @param mountpoint the mount point path
- * @param ch the communication channel
- */
-void fuse_unmount(const char *mountpoint, struct fuse_chan *ch);
 
 /**
  * Parse common options

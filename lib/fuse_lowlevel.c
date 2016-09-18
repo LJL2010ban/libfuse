@@ -2437,7 +2437,13 @@ static int fuse_ll_copy_from_pipe(struct fuse_bufvec *dst,
 }
 
 void fuse_session_process_buf(struct fuse_session *se,
-			      const struct fuse_buf *buf, struct fuse_chan *ch)
+			      const struct fuse_buf *buf)
+{
+	fuse_session_process_buf_int(se,  buf, se->ch);
+}
+
+void fuse_session_process_buf_int(struct fuse_session *se,
+				  const struct fuse_buf *buf, struct fuse_chan *ch)
 {
 	struct fuse_ll *f = se->f;
 	const size_t write_header_size = sizeof(struct fuse_in_header) +
@@ -2670,11 +2676,8 @@ static int fuse_ll_opt_proc(void *data, const char *arg, int key,
 		fuse_ll_version();
 		break;
 
-	default:
-		fprintf(stderr, "fuse: unknown option `%s'\n", arg);
 	}
-
-	return -1;
+	return 1;
 }
 
 static void fuse_ll_destroy(struct fuse_ll *f)
@@ -2694,22 +2697,19 @@ static void fuse_ll_destroy(struct fuse_ll *f)
 	free(f);
 }
 
-void fuse_session_destroy(struct fuse_session *se)
-{
-	fuse_ll_destroy(se->f);
-	fuse_chan_put(se->ch);
-	free(se);
-}
-
-
 static void fuse_ll_pipe_destructor(void *data)
 {
 	struct fuse_ll_pipe *llp = data;
 	fuse_ll_pipe_free(llp);
 }
 
-int fuse_session_receive_buf(struct fuse_session *se, struct fuse_buf *buf,
-			     struct fuse_chan *ch)
+int fuse_session_receive_buf(struct fuse_session *se, struct fuse_buf *buf)
+{
+	return fuse_session_receive_buf_int(se, buf, se->ch);
+}
+
+int fuse_session_receive_buf_int(struct fuse_session *se, struct fuse_buf *buf,
+				 struct fuse_chan *ch)
 {
 	struct fuse_ll *f = se->f;
 	int err;
@@ -2857,9 +2857,9 @@ restart:
 
 #define MIN_BUFSIZE 0x21000
 
-struct fuse_session *fuse_lowlevel_new(struct fuse_args *args,
-				       const struct fuse_lowlevel_ops *op,
-				       size_t op_size, void *userdata)
+struct fuse_session *fuse_session_new(struct fuse_args *args,
+				      const struct fuse_lowlevel_ops *op,
+				      size_t op_size, void *userdata)
 {
 	int err;
 	struct fuse_ll *f;
@@ -2906,12 +2906,13 @@ struct fuse_session *fuse_lowlevel_new(struct fuse_args *args,
 	f->owner = getuid();
 	f->userdata = userdata;
 
-	se = fuse_session_new();
-	if (!se)
+	se = (struct fuse_session *) malloc(sizeof(*se));
+	if (se == NULL) {
+		fprintf(stderr, "fuse: failed to allocate session\n");
 		goto out_key_destroy;
-
+	}
+	memset(se, 0, sizeof(*se));
 	se->f = f;
-
 	return se;
 
 out_key_destroy:
@@ -2922,6 +2923,66 @@ out_free:
 out:
 	return NULL;
 }
+
+int fuse_session_mount(struct fuse_session *se, const char *mountpoint,
+		       struct fuse_args *args)
+{
+	struct fuse_chan *ch;
+	int fd;
+
+	/*
+	 * Make sure file descriptors 0, 1 and 2 are open, otherwise chaos
+	 * would ensue.
+	 */
+	do {
+		fd = open("/dev/null", O_RDWR);
+		if (fd > 2)
+			close(fd);
+	} while (fd >= 0 && fd <= 2);
+
+	/* Open channel */
+	fd = fuse_kern_mount(mountpoint, args);
+	if (fd == -1)
+		return -1;
+
+	ch = fuse_chan_new(fd);
+	if (!ch)
+		goto error_out;
+
+	/* Add channel to session */
+	fuse_session_add_chan(se, ch);
+
+	/* Save mountpoint */
+	se->mountpoint = strdup(mountpoint);
+	if (se->mountpoint == NULL)
+		goto error_out;
+
+	return 0;
+
+error_out:
+	fuse_kern_unmount(mountpoint, fd);
+	return -1;
+}
+
+void fuse_session_umount(struct fuse_session *se)
+{
+	fuse_session_remove_chan(se->ch);
+	if (se->mountpoint) {
+		int fd = se->ch ? fuse_chan_clearfd(se->ch) : -1;
+		fuse_kern_unmount(se->mountpoint, fd);
+		fuse_chan_put(se->ch);
+		free(se->mountpoint);
+		se->mountpoint = NULL;
+	}
+}
+
+void fuse_session_destroy(struct fuse_session *se)
+{
+	fuse_ll_destroy(se->f);
+	fuse_chan_put(se->ch);
+	free(se);
+}
+
 
 #ifdef linux
 int fuse_req_getgroups(fuse_req_t req, int size, gid_t list[])

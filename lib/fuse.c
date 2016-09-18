@@ -4345,14 +4345,14 @@ static int fuse_session_loop_remember(struct fuse *f)
 			else
 				break;
 		} else if (res > 0) {
-			res = fuse_session_receive_buf(se, &fbuf, ch);
+			res = fuse_session_receive_buf_int(se, &fbuf, ch);
 
 			if (res == -EINTR)
 				continue;
 			if (res <= 0)
 				break;
 
-			fuse_session_process_buf(se, &fbuf, ch);
+			fuse_session_process_buf_int(se, &fbuf, ch);
 		} else {
 			timeout = fuse_clean_cache(f);
 			curr_time(&now);
@@ -4631,7 +4631,7 @@ void fuse_stop_cleanup_thread(struct fuse *f)
 	}
 }
 
-struct fuse *fuse_new(struct fuse_chan *ch, struct fuse_args *args,
+struct fuse *fuse_new(struct fuse_args *args,
 		      const struct fuse_operations *op,
 		      size_t op_size, void *user_data)
 {
@@ -4714,14 +4714,12 @@ struct fuse *fuse_new(struct fuse_chan *ch, struct fuse_args *args,
 	f->conf.readdir_ino = 1;
 #endif
 
-	f->se = fuse_lowlevel_new(args, &llop, sizeof(llop), f);
+	f->se = fuse_session_new(args, &llop, sizeof(llop), f);
 	if (f->se == NULL) {
 		if (f->conf.help)
 			fuse_lib_help_modules();
 		goto out_free_fs;
 	}
-
-	fuse_session_add_chan(f->se, ch);
 
 	if (f->conf.debug) {
 		fprintf(stderr, "nopath: %i\n", f->conf.nopath);
@@ -4830,4 +4828,15 @@ void fuse_destroy(struct fuse *f)
 	free(f->conf.modules);
 	free(f);
 	fuse_delete_context_key();
+}
+
+int fuse_mount(struct fuse *f, const char *mountpoint,
+	       struct fuse_args *args) {
+	return fuse_session_mount(fuse_get_session(f), mountpoint,
+				  args);
+}
+
+
+void fuse_umount(struct fuse *f) {
+	return fuse_session_umount(fuse_get_session(f));
 }

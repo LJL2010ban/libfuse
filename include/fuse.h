@@ -640,21 +640,47 @@ struct fuse_context {
 /**
  * Create a new FUSE filesystem.
  *
- * @param ch the communication channel
+ * Known arguments are defined in `struct fuse_opt fuse_lib_opts[]`
+ * and `struct fuse_opt fuse_ll_opts[]`, and will be removed from
+ * *args*. Note that when passed ``--help`` or ``-V``, this function
+ * will print to stderr and terminate the program.
+ *
  * @param args argument vector
  * @param op the filesystem operations
  * @param op_size the size of the fuse_operations structure
  * @param user_data user data supplied in the context during the init() method
  * @return the created FUSE handle
  */
-struct fuse *fuse_new(struct fuse_chan *ch, struct fuse_args *args,
-		      const struct fuse_operations *op, size_t op_size,
-		      void *user_data);
+struct fuse *fuse_new(struct fuse_args *args, const struct fuse_operations *op,
+		      size_t op_size, void *user_data);
+
+/**
+ * Mount a FUSE file system.
+ *
+ * Known arguments are defined in `struct fuse_opt fuse_mount_opts[]`
+ * and will be removed from *args*. Unknown arguments will cause the
+ * program to be terminated with an error message. Note that when
+ * passed ``--help`` or ``-V``, this function will print to stderr and
+ * terminate the program.
+ *
+ * @param mountpoint the mount point path
+ * @param f the FUSE handle
+ * @param args argument vector
+ *
+ * @return 0 on success, -1 on failure.
+ **/
+int fuse_mount(struct fuse *f, const char *mountpoint,
+	       struct fuse_args *args);
+
+/**
+ * Unmount a FUSE file system.
+ *
+ * @param f the FUSE handle
+ **/
+void fuse_umount(struct fuse *f);
 
 /**
  * Destroy the FUSE handle.
- *
- * The communication channel attached to the handle is also destroyed.
  *
  * NOTE: This function does not unmount the filesystem.	 If this is
  * needed, call fuse_unmount() before calling this function.

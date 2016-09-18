@@ -56,14 +56,6 @@ typedef struct fuse_req *fuse_req_t;
  */
 struct fuse_session;
 
-/**
- * Channel
- *
- * A communication channel, providing hooks for sending and receiving
- * messages
- */
-struct fuse_chan;
-
 /** Directory entry parameters supplied to fuse_reply_entry() */
 struct fuse_entry_param {
 	/** Unique inode number
@@ -1569,88 +1561,72 @@ void fuse_req_interrupt_func(fuse_req_t req, fuse_interrupt_func_t func,
 int fuse_req_interrupted(fuse_req_t req);
 
 /* ----------------------------------------------------------- *
- * Filesystem setup					       *
+ * Filesystem setup & teardown                                 *
  * ----------------------------------------------------------- */
 
 /**
- * Create a low level session
+ * Create a low level session.
+ *
+ * Returns a session structure suitable for passing to
+ * fuse_session_mount() and fuse_session_loop().
+ *
+ * Known arguments are defined in `struct fuse_opt fuse_ll_opts[]` and
+ * will be removed from *args*. Unknown arguments will be ignored and
+ * left untouched. Note that when passed ``--help`` or ``-V``, this
+ * function will print to stderr and terminate the program.
  *
  * @param args argument vector
- * @param op the low level filesystem operations
+ * @param op the (low-level) filesystem operations
  * @param op_size sizeof(struct fuse_lowlevel_ops)
  * @param userdata user data
- * @return the created session object, or NULL on failure
+ *
+ * @return the fuse session on success, NULL on failure
  *
  * Example: See hello_ll.c:
  *   \snippet hello_ll.c doxygen_fuse_lowlevel_usage
- */
-struct fuse_session *fuse_lowlevel_new(struct fuse_args *args,
-				       const struct fuse_lowlevel_ops *op,
-				       size_t op_size, void *userdata);
-
-/* ----------------------------------------------------------- *
- * Session interface					       *
- * ----------------------------------------------------------- */
+ **/
+struct fuse_session *fuse_session_new(struct fuse_args *args,
+				      const struct fuse_lowlevel_ops *op,
+				      size_t op_size, void *userdata);
 
 /**
- * Assign a channel to a session
+ * Mount a FUSE file system.
  *
- * If a session is destroyed, the assigned channel is also destroyed
+ * Known arguments are defined in `struct fuse_opt fuse_mount_opts[]`
+ * and will be removed from *args*. Unknown arguments will cause the
+ * program to be terminated with an error message. Note that when
+ * passed ``--help`` or ``-V``, this function will print to stderr and
+ * terminate the program.
+ *
+ * @param mountpoint the mount point path
+ * @param se session object
+ * @param args argument vector
+ *
+ * @return 0 on success, -1 on failure.
+ **/
+int fuse_session_mount(struct fuse_session *se,
+		       const char *mountpoint,
+		       struct fuse_args *args);
+
+/**
+ * Enter a single threaded, blocking event loop.
+ *
+ * Using POSIX signals this event loop can be exited but the session
+ * needs to be configued by issuing:
+ *   fuse_set_signal_handlers() first.
  *
  * @param se the session
- * @param ch the channel
+ * @return 0 on success, -1 on error
  */
-void fuse_session_add_chan(struct fuse_session *se, struct fuse_chan *ch);
+int fuse_session_loop(struct fuse_session *se);
 
 /**
- * Remove the channel from a session
- *
- * If the channel is not assigned to a session, then this is a no-op
- *
- * @param ch the channel to remove
- */
-void fuse_session_remove_chan(struct fuse_chan *ch);
-
-/**
- * Return channel assigned to the session
+ * Enter a multi-threaded event loop
  *
  * @param se the session
- * @return the channel
+ * @return 0 on success, -1 on error
  */
-struct fuse_chan *fuse_session_chan(struct fuse_session *se);
-
-/**
- * Process a raw request supplied in a generic buffer
- *
- * The fuse_buf may contain a memory buffer or a pipe file descriptor.
- *
- * @param se the session
- * @param buf the fuse_buf containing the request
- * @param ch channel on which the request was received
- */
-void fuse_session_process_buf(struct fuse_session *se,
-			      const struct fuse_buf *buf, struct fuse_chan *ch);
-
-/**
- * Receive a raw request supplied in a generic buffer
- *
- * The fuse_buf supplied to this function contains a suitably allocated memory
- * buffer.  This may be overwritten with a file descriptor buffer.
- *
- * @param se the session
- * @param buf the fuse_buf to store the request in
- * @param ch the channel
- * @return the actual size of the raw request, or -errno on error
- */
-int fuse_session_receive_buf(struct fuse_session *se, struct fuse_buf *buf,
-			     struct fuse_chan *ch);
-
-/**
- * Destroy a session
- *
- * @param se the session
- */
-void fuse_session_destroy(struct fuse_session *se);
+int fuse_session_loop_mt(struct fuse_session *se);
 
 /**
  * Flag a session as terminated.
@@ -1679,43 +1655,47 @@ void fuse_session_reset(struct fuse_session *se);
 int fuse_session_exited(struct fuse_session *se);
 
 /**
- * Enter a single threaded, blocking event loop.
- *
- * Using POSIX signals this event loop can be exited but the session
- * needs to be configued by issuing:
- *   fuse_set_signal_handlers() first.
+ * Unmount the file system
  *
  * @param se the session
- * @return 0 on success, -1 on error
  */
-int fuse_session_loop(struct fuse_session *se);
+void fuse_session_umount(struct fuse_session *se);
 
 /**
- * Enter a multi-threaded event loop
+ * Destroy a session
  *
  * @param se the session
- * @return 0 on success, -1 on error
  */
-int fuse_session_loop_mt(struct fuse_session *se);
+void fuse_session_destroy(struct fuse_session *se);
 
 /* ----------------------------------------------------------- *
- * Channel interface					       *
+ * Request processing (for custom event loops)                 *
  * ----------------------------------------------------------- */
 
 /**
- * Obtain counted reference to the channel
+ * Process a raw request supplied in a generic buffer
  *
- * @param ch the channel
- * @return the channel
+ * The fuse_buf may contain a memory buffer or a pipe file descriptor.
+ *
+ * @param se the session
+ * @param buf the fuse_buf containing the request
+ * @param ch channel on which the request was received
  */
-struct fuse_chan *fuse_chan_get(struct fuse_chan *ch);
+void fuse_session_process_buf(struct fuse_session *se,
+			      const struct fuse_buf *buf);
 
 /**
- * Drop counted reference to a channel
+ * Receive a raw request supplied in a generic buffer
  *
+ * The fuse_buf supplied to this function contains a suitably allocated memory
+ * buffer.  This may be overwritten with a file descriptor buffer.
+ *
+ * @param se the session
+ * @param buf the fuse_buf to store the request in
  * @param ch the channel
+ * @return the actual size of the raw request, or -errno on error
  */
-void fuse_chan_put(struct fuse_chan *ch);
+int fuse_session_receive_buf(struct fuse_session *se, struct fuse_buf *buf);
 
 #ifdef __cplusplus
 }
